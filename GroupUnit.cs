@@ -2,28 +2,8 @@
 using System.Collections;
 using System.Collections.Generic;
 
-public class GroupUnit : MonoBehaviour, I_Entity
+public class GroupUnit : MonoBehaviour, EntityWorldSpaceComponent
 {
-    public bool Killable
-    {
-        get; protected set;
-    }
-
-    public bool Dead
-    {
-        get; protected set;
-    }
-
-    public float BaseIntegrity
-    {
-        get; protected set;
-    }
-
-    public float Integrity
-    {
-        get; protected set;
-    }
-
     //speed in meters per second - base speed, speedModification
     protected float baseSpeed, modSpeed;
     protected float groundYPos;
@@ -54,7 +34,6 @@ public class GroupUnit : MonoBehaviour, I_Entity
     protected bool moving = false;
     protected bool targetReached = false;
 
-    protected bool canMove = true;
     public Vector3 Align { get; private set; }
     public Vector3 Cohesion { get; private set; }
     public Vector3 Separation { get; private set; }
@@ -63,8 +42,13 @@ public class GroupUnit : MonoBehaviour, I_Entity
 
     void Awake()
     {
+        if (combatComponent == null)
+        {
+            combatComponent = gameObject.AddComponent<EntityCombatant>();
+        }
         characterCollider = GetComponent<CapsuleCollider>();
-        collisionAvoidanceCollider = GetComponent<SphereCollider>();       
+        collisionAvoidanceCollider = GetComponent<SphereCollider>();
+        combatComponent.WorldSpaceObject = this; 
     }
 
     public void SquadSendInit()
@@ -73,10 +57,9 @@ public class GroupUnit : MonoBehaviour, I_Entity
         avoidFactor = 1f;
     }
 
-    void FixedUpdate()
+    void Update()
     {
-        if(canMove)
-            MovementPhase();
+        MovementPhase();
         lastPos = transform.position;
     }
 
@@ -87,7 +70,7 @@ public class GroupUnit : MonoBehaviour, I_Entity
         Cohesion = Vector3.zero;
         Separation = Vector3.zero;
         Avoid = Vector3.zero;
-
+        
         if (MovementOrders != Vector3.zero)
         {
             Align = ((MovementOrders + transform.position) - transform.position).normalized;
@@ -96,47 +79,38 @@ public class GroupUnit : MonoBehaviour, I_Entity
             if (distanceFromCenter > DistanceThreshold)
             {
                 Cohesion = (Squad.CenterOfMass - transform.position).normalized * 1.1f;
-            }
+            }           
         }
-        else if (distanceFromCenter > DistanceThreshold * 2)
+        else if(distanceFromCenter > DistanceThreshold * 2)
         {
             Cohesion = (Squad.CenterOfMass - transform.position).normalized;
             Debug.DrawRay(transform.position, Vector3.up * 6f, Color.cyan);
-        }
+        }  
         Debug.DrawRay(Pos, (Cohesion).normalized * 5f, Color.blue);
 
         float distance;
-        int n_count = 0;
         //are there any detected units within the distance separation-trigger area
         if (neighborUnits.Count > 0)
         {
             foreach (GroupUnit unit in neighborUnits)
             {
-                if (n_count > 5)
-                    break;
                 distance = Vector3.Distance(unit.Pos, transform.position);
-                if (distance < distanceThreshold) //replace this with squad based spread
+                if (distance < distanceThreshold)
                     Separation += (unit.Pos - transform.position);
-                n_count++;
             }
             Debug.DrawRay(Pos, Separation.normalized * 5f, Color.red);
         }
         //are there any detected obstacles within the distance separation-trigger area
-
-        n_count = 0;
         if (neighborColliders.Count > 0)
         {
             foreach (GameObject neighborObject in neighborColliders)
             {
-                if (n_count > 5)
-                    break;
                 distance = Vector3.Distance(neighborObject.transform.position, transform.position);
                 if (distance < distanceThreshold)
                     Separation += (neighborObject.transform.position - transform.position) * 1 / distance;
-                n_count++;
-            }
+            }                    
         }
-        if (neighborUnits.Count > 0 || neighborColliders.Count > 0)
+        if(neighborUnits.Count > 0 || neighborColliders.Count > 0)
         {
             Separation /= (neighborUnits.Count + neighborColliders.Count);
             Separation *= -1f;
@@ -151,7 +125,7 @@ public class GroupUnit : MonoBehaviour, I_Entity
             Avoid = (transform.position + (transform.forward * distanceThreshold / 2f) - hit.collider.bounds.center);
             Avoid = Avoid.normalized;
             Debug.DrawRay(Pos, Avoid.normalized * distanceThreshold / 2f, Color.green);
-
+            
         }
         Debug.DrawRay(Pos, transform.forward * 5.5f, Color.magenta);
 
@@ -159,7 +133,7 @@ public class GroupUnit : MonoBehaviour, I_Entity
         if (Physics.Raycast(transform.position, (Squad.CenterOfMass - transform.position), Vector3.Distance(Squad.CenterOfMass, transform.position), WorldGrid.mapFlag, QueryTriggerInteraction.Ignore))
             Cohesion *= .25f;
 
-        if (moving)
+        if(moving)
             MovementOrders += Avoid;
         //MovementOrders += Align;
         MovementOrders += Cohesion * (Mathf.Clamp(distanceFromCenter + DistanceThreshold, 0, 20f) / 20f) * .1f;
@@ -176,7 +150,7 @@ public class GroupUnit : MonoBehaviour, I_Entity
             moving = false;
         }
 
-        hits = Physics.SphereCastAll(transform.position + (Vector3.up * characterCollider.bounds.size.y), characterCollider.bounds.extents.y * .1f, Vector3.down, 200f, (1 << 8));
+        hits = Physics.SphereCastAll(transform.position + (Vector3.up * characterCollider.bounds.size.y), characterCollider.radius * .1f, Vector3.down, 200f, (1 << 8));
 
         if (hits.Length > 0)
         {
@@ -186,27 +160,15 @@ public class GroupUnit : MonoBehaviour, I_Entity
                 if (hit.point.y < hits[x].point.y)
                     hit = hits[x];
             }
-            //Pos = new Vector3(transform.position.x, hit.point.y, transform.position.z);
+            Pos = new Vector3(transform.position.x, hit.point.y, transform.position.z);
             groundYPos = hit.point.y;
-            //print(groundPosY);
         }
         else
             Debug.Log("Where is the ground?");
         Pos = new Vector3(transform.position.x, groundYPos, transform.position.z);
-        //print(groundPosY);
 
         MovementOrders = Vector3.zero;
     }
-
-    public void Startmoving()
-    {
-        canMove = true;
-    }
-
-    public void StopMoving()
-    {
-        canMove = false;
-    }   
 
     public void SetFacingDirection()
     {
@@ -214,6 +176,7 @@ public class GroupUnit : MonoBehaviour, I_Entity
         {
             if (MovementOrders == Vector3.zero)
                 return;
+            //transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(new Vector3(MovementOrders.x, 0, MovementOrders.z)), Time.deltaTime * 2f);
             transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(new Vector3(MovementOrders.x, 0, MovementOrders.z)), Time.deltaTime * 5f);
         }
         catch (System.NullReferenceException e)
@@ -227,7 +190,7 @@ public class GroupUnit : MonoBehaviour, I_Entity
     {
         try
         {
-            if ((posIn - Pos).magnitude <= Mathf.Clamp(Time.deltaTime * Speed, characterCollider.bounds.extents.x, Mathf.Infinity))
+            if ((posIn - Pos).magnitude <= Mathf.Clamp(Time.deltaTime * Speed, characterCollider.radius, Mathf.Infinity))
                 return true;
             return false;
         }
@@ -285,14 +248,11 @@ public class GroupUnit : MonoBehaviour, I_Entity
     #endregion
 
     #region movementProperties
-    public Vector3 MovementOrders { get; set; }
-
     /*
-    * Use this to set or get the character's position
-    * Get - Gets the current position
-    * Set - Sets the position, offseting the value so that the collider is resting on the ground.
-    * */
-
+	 * Use this to set or get the character's position
+	 * Get - Gets the current position
+	 * Set - Sets the position, offseting the value so that the collider is resting on the ground.
+	 * */
     public Vector3 Pos
     {
         get
@@ -308,23 +268,23 @@ public class GroupUnit : MonoBehaviour, I_Entity
         }
         protected set
         {
-            transform.position = value + new Vector3(0, 0, 0);
+            transform.position = value + new Vector3(0, this.characterCollider.bounds.extents.y, 0);
         }
     }
+    public Vector3 MovementOrders { get; set; }
     #endregion
 
-    public void IncurDamage(float damageIn)
-    {
-
-    }
-
-    public void DeathAction()
-    {
-        throw new System.NotImplementedException();
-    }
-
     #region components
-    public GameObject _AttachedGameObject
+    public EntityCombatComponent EntityCombatObject
+    {
+        get
+        {
+            return combatComponent;
+        }
+    }
+    protected EntityCombatComponent combatComponent;
+
+    public GameObject AttachedGameObject
     {
         get
         {
