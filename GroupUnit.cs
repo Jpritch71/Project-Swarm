@@ -2,8 +2,28 @@
 using System.Collections;
 using System.Collections.Generic;
 
-public class GroupUnit : MonoBehaviour, EntityWorldSpaceComponent
+public class GroupUnit : MonoBehaviour, I_Entity
 {
+    public bool Killable
+    {
+        get; protected set;
+    }
+
+    public bool Dead
+    {
+        get; protected set;
+    }
+
+    public float BaseIntegrity
+    {
+        get; protected set;
+    }
+
+    public float Integrity
+    {
+        get; protected set;
+    }
+
     //speed in meters per second - base speed, speedModification
     protected float baseSpeed, modSpeed;
     protected float groundYPos;
@@ -34,6 +54,7 @@ public class GroupUnit : MonoBehaviour, EntityWorldSpaceComponent
     protected bool moving = false;
     protected bool targetReached = false;
 
+    protected bool canMove = true;
     public Vector3 Align { get; private set; }
     public Vector3 Cohesion { get; private set; }
     public Vector3 Separation { get; private set; }
@@ -42,24 +63,21 @@ public class GroupUnit : MonoBehaviour, EntityWorldSpaceComponent
 
     void Awake()
     {
-        if (combatComponent == null)
-        {
-            combatComponent = gameObject.AddComponent<EntityCombatant>();
-        }
         characterCollider = GetComponent<CapsuleCollider>();
         collisionAvoidanceCollider = GetComponent<SphereCollider>();
-        combatComponent.WorldSpaceObject = this; 
     }
 
     public void SquadSendInit()
     {
+        //BaseSpeed = Squad.Speed;
         DistanceThreshold = Squad.CurrentVolumeRadius;
         avoidFactor = 1f;
     }
 
-    void Update()
+    void FixedUpdate()
     {
-        MovementPhase();
+        if (canMove)
+            MovementPhase();
         lastPos = transform.position;
     }
 
@@ -70,7 +88,7 @@ public class GroupUnit : MonoBehaviour, EntityWorldSpaceComponent
         Cohesion = Vector3.zero;
         Separation = Vector3.zero;
         Avoid = Vector3.zero;
-        
+
         if (MovementOrders != Vector3.zero)
         {
             Align = ((MovementOrders + transform.position) - transform.position).normalized;
@@ -79,13 +97,13 @@ public class GroupUnit : MonoBehaviour, EntityWorldSpaceComponent
             if (distanceFromCenter > DistanceThreshold)
             {
                 Cohesion = (Squad.CenterOfMass - transform.position).normalized * 1.1f;
-            }           
+            }
         }
-        else if(distanceFromCenter > DistanceThreshold * 2)
+        else if (distanceFromCenter > DistanceThreshold * 2)
         {
             Cohesion = (Squad.CenterOfMass - transform.position).normalized;
             Debug.DrawRay(transform.position, Vector3.up * 6f, Color.cyan);
-        }  
+        }
         Debug.DrawRay(Pos, (Cohesion).normalized * 5f, Color.blue);
 
         float distance;
@@ -108,9 +126,9 @@ public class GroupUnit : MonoBehaviour, EntityWorldSpaceComponent
                 distance = Vector3.Distance(neighborObject.transform.position, transform.position);
                 if (distance < distanceThreshold)
                     Separation += (neighborObject.transform.position - transform.position) * 1 / distance;
-            }                    
+            }
         }
-        if(neighborUnits.Count > 0 || neighborColliders.Count > 0)
+        if (neighborUnits.Count > 0 || neighborColliders.Count > 0)
         {
             Separation /= (neighborUnits.Count + neighborColliders.Count);
             Separation *= -1f;
@@ -125,7 +143,7 @@ public class GroupUnit : MonoBehaviour, EntityWorldSpaceComponent
             Avoid = (transform.position + (transform.forward * distanceThreshold / 2f) - hit.collider.bounds.center);
             Avoid = Avoid.normalized;
             Debug.DrawRay(Pos, Avoid.normalized * distanceThreshold / 2f, Color.green);
-            
+
         }
         Debug.DrawRay(Pos, transform.forward * 5.5f, Color.magenta);
 
@@ -133,7 +151,7 @@ public class GroupUnit : MonoBehaviour, EntityWorldSpaceComponent
         if (Physics.Raycast(transform.position, (Squad.CenterOfMass - transform.position), Vector3.Distance(Squad.CenterOfMass, transform.position), WorldGrid.mapFlag, QueryTriggerInteraction.Ignore))
             Cohesion *= .25f;
 
-        if(moving)
+        if (moving)
             MovementOrders += Avoid;
         //MovementOrders += Align;
         MovementOrders += Cohesion * (Mathf.Clamp(distanceFromCenter + DistanceThreshold, 0, 20f) / 20f) * .1f;
@@ -170,13 +188,32 @@ public class GroupUnit : MonoBehaviour, EntityWorldSpaceComponent
         MovementOrders = Vector3.zero;
     }
 
+    public bool CheckLost()
+    {
+        return distanceFromCenter > Squad.CurrentVolumeRadius * 1.1f;
+    }
+
+    protected void Alert_Lost()
+    {
+
+    }
+
+    public void Startmoving()
+    {
+        canMove = true;
+    }
+
+    public void StopMoving()
+    {
+        canMove = false;
+    }
+
     public void SetFacingDirection()
     {
         try
         {
             if (MovementOrders == Vector3.zero)
                 return;
-            //transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(new Vector3(MovementOrders.x, 0, MovementOrders.z)), Time.deltaTime * 2f);
             transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(new Vector3(MovementOrders.x, 0, MovementOrders.z)), Time.deltaTime * 5f);
         }
         catch (System.NullReferenceException e)
@@ -190,7 +227,7 @@ public class GroupUnit : MonoBehaviour, EntityWorldSpaceComponent
     {
         try
         {
-            if ((posIn - Pos).magnitude <= Mathf.Clamp(Time.deltaTime * Speed, characterCollider.radius, Mathf.Infinity))
+            if ((posIn - Pos).magnitude <= Mathf.Clamp(Time.deltaTime * Speed, characterCollider.bounds.extents.x, Mathf.Infinity))
                 return true;
             return false;
         }
@@ -243,16 +280,19 @@ public class GroupUnit : MonoBehaviour, EntityWorldSpaceComponent
 	 * */
     public float Clearance
     {
-        get { return Squad.VolumeCollider.radius;  }
+        get { return Squad.VolumeCollider.radius; }
     }
     #endregion
 
     #region movementProperties
+    public Vector3 MovementOrders { get; set; }
+
     /*
-	 * Use this to set or get the character's position
-	 * Get - Gets the current position
-	 * Set - Sets the position, offseting the value so that the collider is resting on the ground.
-	 * */
+    * Use this to set or get the character's position
+    * Get - Gets the current position
+    * Set - Sets the position, offseting the value so that the collider is resting on the ground.
+    * */
+
     public Vector3 Pos
     {
         get
@@ -268,23 +308,23 @@ public class GroupUnit : MonoBehaviour, EntityWorldSpaceComponent
         }
         protected set
         {
-            transform.position = value + new Vector3(0, this.characterCollider.bounds.extents.y, 0);
+            transform.position = value + new Vector3(0, characterCollider.bounds.extents.y, 0);
         }
     }
-    public Vector3 MovementOrders { get; set; }
     #endregion
 
-    #region components
-    public EntityCombatComponent EntityCombatObject
+    public void IncurDamage(float damageIn)
     {
-        get
-        {
-            return combatComponent;
-        }
-    }
-    protected EntityCombatComponent combatComponent;
 
-    public GameObject AttachedGameObject
+    }
+
+    public void DeathAction()
+    {
+        throw new System.NotImplementedException();
+    }
+
+    #region components
+    public GameObject _AttachedGameObject
     {
         get
         {
