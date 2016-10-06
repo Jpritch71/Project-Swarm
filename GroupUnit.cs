@@ -64,18 +64,19 @@ public class GroupUnit : MonoBehaviour, I_Entity
     void Awake()
     {
         characterCollider = GetComponent<CapsuleCollider>();
-        collisionAvoidanceCollider = GetComponent<SphereCollider>();       
+        collisionAvoidanceCollider = GetComponent<SphereCollider>();
     }
 
     public void SquadSendInit()
     {
+        //BaseSpeed = Squad.Speed;
         DistanceThreshold = Squad.CurrentVolumeRadius;
         avoidFactor = 1f;
     }
 
     void FixedUpdate()
     {
-        if(canMove)
+        if (canMove)
             MovementPhase();
         lastPos = transform.position;
     }
@@ -106,34 +107,25 @@ public class GroupUnit : MonoBehaviour, I_Entity
         Debug.DrawRay(Pos, (Cohesion).normalized * 5f, Color.blue);
 
         float distance;
-        int n_count = 0;
         //are there any detected units within the distance separation-trigger area
         if (neighborUnits.Count > 0)
         {
             foreach (GroupUnit unit in neighborUnits)
             {
-                if (n_count > 5)
-                    break;
                 distance = Vector3.Distance(unit.Pos, transform.position);
-                if (distance < distanceThreshold) //replace this with squad based spread
+                if (distance < distanceThreshold)
                     Separation += (unit.Pos - transform.position);
-                n_count++;
             }
             Debug.DrawRay(Pos, Separation.normalized * 5f, Color.red);
         }
         //are there any detected obstacles within the distance separation-trigger area
-
-        n_count = 0;
         if (neighborColliders.Count > 0)
         {
             foreach (GameObject neighborObject in neighborColliders)
             {
-                if (n_count > 5)
-                    break;
                 distance = Vector3.Distance(neighborObject.transform.position, transform.position);
                 if (distance < distanceThreshold)
                     Separation += (neighborObject.transform.position - transform.position) * 1 / distance;
-                n_count++;
             }
         }
         if (neighborUnits.Count > 0 || neighborColliders.Count > 0)
@@ -176,7 +168,7 @@ public class GroupUnit : MonoBehaviour, I_Entity
             moving = false;
         }
 
-        hits = Physics.SphereCastAll(transform.position + (Vector3.up * characterCollider.bounds.size.y), characterCollider.bounds.extents.y * .1f, Vector3.down, 200f, (1 << 8));
+        hits = Physics.SphereCastAll(transform.position + (Vector3.up * characterCollider.bounds.size.y), characterCollider.radius * .1f, Vector3.down, 200f, (1 << 8));
 
         if (hits.Length > 0)
         {
@@ -186,16 +178,24 @@ public class GroupUnit : MonoBehaviour, I_Entity
                 if (hit.point.y < hits[x].point.y)
                     hit = hits[x];
             }
-            //Pos = new Vector3(transform.position.x, hit.point.y, transform.position.z);
+            Pos = new Vector3(transform.position.x, hit.point.y, transform.position.z);
             groundYPos = hit.point.y;
-            //print(groundPosY);
         }
         else
             Debug.Log("Where is the ground?");
         Pos = new Vector3(transform.position.x, groundYPos, transform.position.z);
-        //print(groundPosY);
 
         MovementOrders = Vector3.zero;
+    }
+
+    public bool CheckLost()
+    {
+        return distanceFromCenter > Squad.CurrentVolumeRadius * 1.1f;
+    }
+
+    protected void Alert_Lost()
+    {
+
     }
 
     public void Startmoving()
@@ -206,7 +206,7 @@ public class GroupUnit : MonoBehaviour, I_Entity
     public void StopMoving()
     {
         canMove = false;
-    }   
+    }
 
     public void SetFacingDirection()
     {
@@ -280,7 +280,7 @@ public class GroupUnit : MonoBehaviour, I_Entity
 	 * */
     public float Clearance
     {
-        get { return Squad.VolumeCollider.radius;  }
+        get { return Squad.VolumeCollider.radius; }
     }
     #endregion
 
@@ -308,7 +308,7 @@ public class GroupUnit : MonoBehaviour, I_Entity
         }
         protected set
         {
-            transform.position = value + new Vector3(0, 0, 0);
+            transform.position = value + new Vector3(0, characterCollider.bounds.extents.y, 0);
         }
     }
     #endregion
